@@ -486,21 +486,27 @@ body {
 
   <!-- 决策卡 -->
   <div class="decision-overlay" :class="{ active: decisionActive }">
-    <div class="decision-hint">👆 左滑或右滑做出选择</div>
+    <div class="decision-hint">👆 点击左/右选项 或 滑动卡片</div>
     <div class="decision-card" ref="decisionCard"
-         @pointerdown="onSwipeStart" @pointermove="onSwipeMove" @pointerup="onSwipeEnd">
+         @pointerdown="onSwipeStart"
+         @pointermove="onSwipeMove"
+         @pointerup="onSwipeEnd"
+         @pointercancel="onSwipeEnd"
+         @touchstart.passive="onSwipeStart"
+         @touchmove.passive="onSwipeMove"
+         @touchend="onSwipeEnd">
       <div class="decision-prompt">{{ decision?.prompt }}</div>
       <div class="decision-options">
-        <div class="decision-option left" @click="makeChoice('left')">
+        <div class="decision-option left" @click.stop="makeChoice('left')">
           <span v-html="decision?.left?.replace(/\n/g, '<br>')"></span>
         </div>
-        <div class="decision-option right" @click="makeChoice('right')">
+        <div class="decision-option right" @click.stop="makeChoice('right')">
           <span v-html="decision?.right?.replace(/\n/g, '<br>')"></span>
         </div>
       </div>
       <div class="decision-swipe-hint">
         <span class="left-hint">◁ 左滑</span>
-        <span class="mid">滑动选择</span>
+        <span class="mid">滑动或点击</span>
         <span class="right-hint">右滑 ▷</span>
       </div>
     </div>
@@ -1841,17 +1847,27 @@ const app = createApp({
       currentResolve(dir === 'left' ? 0 : 1);
     }
 
+    function getX(e) {
+      if (!e) return 0;
+      if (e.touches && e.touches.length) return e.touches[0].clientX;
+      if (e.changedTouches && e.changedTouches.length) return e.changedTouches[0].clientX;
+      return e.clientX || 0;
+    }
     function onSwipeStart(e) {
       if (!decisionActive.value) return;
-      swipeStartX = e.clientX;
+      console.log('[swipe] start', e?.type, e?.pointerType);
+      swipeStartX = getX(e);
       swipeActive = true;
       swipeOffsetX = 0;
       decisionCard.value?.classList.add('swiping');
-      decisionCard.value?.setPointerCapture(e.pointerId);
+      // 移动端不调 setPointerCapture（会失败）
+      if (e && e.pointerId !== undefined && e.pointerType !== 'touch') {
+        try { decisionCard.value?.setPointerCapture(e.pointerId); } catch (_) {}
+      }
     }
     function onSwipeMove(e) {
       if (!swipeActive) return;
-      const dx = e.clientX - swipeStartX;
+      const dx = getX(e) - swipeStartX;
       swipeOffsetX = dx;
       if (decisionCard.value) {
         decisionCard.value.style.transform = `translateX(${dx}px) rotate(${dx * 0.05}deg)`;
@@ -1860,16 +1876,17 @@ const app = createApp({
       else if (dx > 40) { swipeHint.value = 'right'; }
       else { swipeHint.value = null; }
     }
-    function onSwipeEnd() {
+    function onSwipeEnd(e) {
       if (!swipeActive) return;
+      console.log('[swipe] end', 'offset=', swipeOffsetX);
       swipeActive = false;
       decisionCard.value?.classList.remove('swiping');
       decisionCard.value?.classList.add('snap-back');
       swipeHint.value = null;
-      if (swipeOffsetX < -80) makeChoice('left');
-      else if (swipeOffsetX > 80) makeChoice('right');
+      if (swipeOffsetX < -60) makeChoice('left');
+      else if (swipeOffsetX > 60) makeChoice('right');
       else if (decisionCard.value) decisionCard.value.style.transform = 'translateX(0) rotate(0deg)';
-      setTimeout(() => decisionCard.value?.classList.remove('snap-back'), 350);
+      setTimeout(() => decisionCard.value?.classList.remove('snap-back'), 120);
     }
 
     function spawnParticles(color = '#FF6B35') {
