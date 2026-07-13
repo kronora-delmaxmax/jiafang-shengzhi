@@ -270,10 +270,12 @@ function renderNext() {
   currentIndex++;
   showItem(item);
   
-  if (item.type !== 'decision' && !item.type.endsWith('_marker')) {
+  // ending_marker 在 showItem 里被静默忽略，必须继续推进
+  // 只有 decision 需要等玩家点击
+  if (item.type !== 'decision') {
     setTimeout(() => {
       if (!isChoosing) renderNext();
-    }, 1200);
+    }, item.type === 'ending_marker' ? 50 : 1200);
   }
 }
 
