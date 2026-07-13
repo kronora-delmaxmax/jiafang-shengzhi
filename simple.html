@@ -1,0 +1,636 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>甲方模拟器·升职记（极简版）</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'PingFang SC', sans-serif;
+  background: #1a1a2e;
+  display: flex; justify-content: center; align-items: center;
+  min-height: 100vh;
+  padding: 20px;
+}
+.container {
+  max-width: 600px; width: 100%;
+  background: #1C1C1E; color: #fff;
+  border-radius: 16px;
+  padding: 20px;
+  min-height: 80vh;
+}
+h1 { color: #FF6B35; text-align: center; margin-bottom: 8px; font-size: 24px; }
+.subtitle { color: #8E8E93; text-align: center; font-size: 13px; margin-bottom: 30px; }
+
+.scene { background: rgba(255,107,53,0.1); border-left: 3px solid #FF6B35; padding: 12px; border-radius: 4px; margin: 12px 0; font-size: 14px; line-height: 1.6; }
+.info { text-align: center; color: #8E8E93; font-size: 12px; margin: 8px 0; }
+
+.msg { background: #2C2C2E; padding: 10px 12px; border-radius: 10px; margin: 8px 0; max-width: 85%; }
+.msg .author { color: #FF6B35; font-weight: 600; font-size: 13px; }
+.msg .time { color: #8E8E93; font-size: 11px; margin-left: 6px; }
+.msg .text { color: #fff; font-size: 14px; line-height: 1.5; margin-top: 4px; white-space: pre-wrap; }
+
+.choices { margin-top: 20px; display: flex; flex-direction: column; gap: 10px; }
+.choice {
+  background: linear-gradient(135deg, rgba(255,107,53,0.2), rgba(255,107,53,0.1));
+  border: 1px solid rgba(255,107,53,0.4);
+  padding: 14px;
+  border-radius: 10px;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1.5;
+  color: #fff;
+  transition: transform 0.1s;
+  text-align: left;
+}
+.choice:hover { background: linear-gradient(135deg, rgba(255,107,53,0.3), rgba(255,107,53,0.15)); }
+.choice:active { transform: scale(0.98); }
+
+.ending { text-align: center; padding: 30px 0; }
+.ending-emoji { font-size: 64px; }
+.ending-title { font-size: 28px; font-weight: 800; margin: 12px 0; }
+.ending-subtitle { color: #8E8E93; font-size: 14px; line-height: 1.6; white-space: pre-wrap; }
+
+button.restart {
+  background: linear-gradient(135deg, #FF6B35, #D32F2F);
+  color: #fff; border: none; padding: 14px 40px;
+  border-radius: 25px; font-size: 16px; cursor: pointer;
+  margin-top: 20px;
+}
+button.intro-btn {
+  background: linear-gradient(135deg, #FF6B35, #D32F2F);
+  color: #fff; border: none; padding: 16px 60px;
+  border-radius: 25px; font-size: 16px; font-weight: 700;
+  cursor: pointer; letter-spacing: 2px; margin-top: 20px;
+}
+.intro-options { display: flex; flex-direction: column; gap: 8px; margin: 20px 0; }
+.intro-option {
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 10px; padding: 12px;
+  cursor: pointer; text-align: left;
+}
+.intro-option.selected { border-color: #FF6B35; background: rgba(255,107,53,0.15); }
+.intro-option .title { font-size: 14px; font-weight: 600; }
+.intro-option .desc { font-size: 12px; color: #8E8E93; margin-top: 4px; }
+
+.stats { background: rgba(255,255,255,0.05); padding: 12px; border-radius: 8px; margin: 16px 0; font-size: 12px; color: #8E8E93; }
+.stat-row { display: flex; justify-content: space-between; padding: 4px 0; }
+.stat-val { color: #fff; font-weight: 600; }
+</style>
+</head>
+<body>
+<div class="container" id="root"></div>
+
+<script>
+// ============================================================
+// 极简版对话树：只保留能展示给用户的内容
+// 重点：确保决策可点击、剧情可读、不报错
+// ============================================================
+
+const $ = id => document.getElementById(id);
+
+// 状态
+let state = {
+  business: 30, human: 30, speech: 30, stress: 20, reputation: 50,
+  yibei: 0,
+  trust: { '王铁锤': 0, '张总': 0, '张设计': 0, '赵欣': 0, '刘老板': 0, '小张AE': 0 },
+  choices: [],  // 已做的选择
+  currentNode: 'intro',
+  background: null
+};
+
+function modify(changes) {
+  for (const k in changes) {
+    if (k.startsWith('trust.')) {
+      const who = k.split('.')[1];
+      state.trust[who] = Math.max(0, (state.trust[who] || 0) + changes[k]);
+    } else if (k === 'yibei') {
+      state.yibei = Math.max(0, Math.min(8, state.yibei + changes[k]));
+    } else {
+      state[k] = Math.max(0, Math.min(200, state[k] + changes[k]));
+    }
+  }
+}
+
+function statsHTML() {
+  return `
+    <div class="stats">
+      <div class="stat-row"><span>💼 业务</span><span class="stat-val">${state.business}</span></div>
+      <div class="stat-row"><span>💛 人情</span><span class="stat-val">${state.human}</span></div>
+      <div class="stat-row"><span>💬 话术</span><span class="stat-val">${state.speech}</span></div>
+      <div class="stat-row"><span>😰 抗压</span><span class="stat-val">${state.stress}</span></div>
+      <div class="stat-row"><span>⭐ 口碑</span><span class="stat-val">${state.reputation}</span></div>
+      <div class="stat-row"><span>🎓 乙里乙气</span><span class="stat-val">L${state.yibei}</span></div>
+    </div>
+  `;
+}
+
+function nodeHTML(node) {
+  let html = `<div style="position:sticky;top:0;background:#1C1C1E;padding:8px 0;z-index:10;${statsHTML().includes('L')?'display:block;':''}">`;
+  html += statsHTML();
+  html += `</div>`;
+  html += `<h1 style="margin-top:20px;">甲方模拟器·升职记</h1>`;
+  html += `<p class="info">极简版 · 文字互动</p>`;
+
+  if (node.time) html += `<p class="info">⏰ ${node.time}</p>`;
+
+  for (const narr of (node.narrator || [])) {
+    html += `<div class="scene">${narr}</div>`;
+  }
+
+  for (const msg of (node.messages || [])) {
+    if (msg.type === 'info') {
+      html += `<p class="info">— ${msg.text} —</p>`;
+    } else if (msg.type === 'them') {
+      html += `<div class="msg">
+        <span class="author">${msg.author}</span>
+        <span class="time">${msg.time || ''}</span>
+        <div class="text">${msg.text}</div>
+      </div>`;
+    }
+  }
+
+  if (node.decision) {
+    html += `<div class="scene">${node.decision.prompt}</div>`;
+    html += `<div class="choices">`;
+    node.decision.options.forEach((opt, i) => {
+      html += `<div class="choice" data-idx="${i}">${opt}</div>`;
+    });
+    html += `</div>`;
+  } else {
+    // 没决策：3 秒后自动到下一个
+    html += `<div class="info" style="margin-top:30px;">⏳ 剧情推进中...</div>`;
+  }
+
+  return html;
+}
+
+function endingHTML(ending) {
+  return `
+    <h1>${ending.emoji}</h1>
+    <div class="ending">
+      <div class="ending-emoji">${ending.emoji}</div>
+      <div class="ending-title" style="background:linear-gradient(135deg,${ending.color},${ending.color}88);-webkit-background-clip:text;-webkit-text-fill-color:transparent;">${ending.title}</div>
+      <div class="ending-subtitle">${ending.subtitle}</div>
+    </div>
+    <div style="text-align:center;">
+      <button class="restart" onclick="restart()">🔄 再来一局</button>
+    </div>
+  `;
+}
+
+function introHTML() {
+  return `
+    <h1>甲方模拟器·升职记</h1>
+    <p class="subtitle">你是一个被空降到广告公司的小主管<br>6 个月后你要么升为合伙人，要么被优化</p>
+    <h3 style="color:#FF6B35;margin-top:20px;">🎭 选择你的出身</h3>
+    <div class="intro-options">
+      <div class="intro-option" data-bg="pm">
+        <div class="title">33岁·林舟·空降小组长</div>
+        <div class="desc">前大厂P7，失业3个月后被塞进小广告公司。工资降30%。</div>
+      </div>
+      <div class="intro-option" data-bg="designer">
+        <div class="title">30岁·张设计·改稿狂魔</div>
+        <div class="desc">改稿10+版是常态，Ctrl+S是肌肉记忆，黑眼圈比眼影深。</div>
+      </div>
+      <div class="intro-option" data-bg="programmer">
+        <div class="title">35岁·老周·危机程序员</div>
+        <div class="desc">互联网老兵，35岁生日蛋糕还没干透，HR的优化通知就来了。</div>
+      </div>
+      <div class="intro-option" data-bg="hr">
+        <div class="title">32岁·小琪·乙学练习生</div>
+        <div class="desc">前HRBP，对客户和老板都需要乙里乙气。命运的玩笑。</div>
+      </div>
+    </div>
+    <div style="text-align:center;">
+      <button class="intro-btn" id="startBtn" disabled>选择出身后开始</button>
+    </div>
+  `;
+}
+
+function render() {
+  const root = $('root');
+  if (state.currentNode === '__intro__') {
+    root.innerHTML = introHTML();
+    document.querySelectorAll('.intro-option').forEach(el => {
+      el.addEventListener('click', () => {
+        document.querySelectorAll('.intro-option').forEach(o => o.classList.remove('selected'));
+        el.classList.add('selected');
+        state.background = el.dataset.bg;
+        $('startBtn').disabled = false;
+        $('startBtn').textContent = '开始 6 个月';
+      });
+    });
+    $('startBtn').addEventListener('click', () => {
+      if (!state.background) return;
+      if (state.background === 'programmer') { state.stress = 40; state.business = 25; }
+      else if (state.background === 'designer') { state.stress = 30; state.business = 40; }
+      else if (state.background === 'hr') { state.stress = 20; state.speech = 45; state.yibei = 1; }
+      goTo('intro');
+    });
+    return;
+  }
+  if (state.currentNode === '__ending__') {
+    root.innerHTML = endingHTML(state.ending);
+    return;
+  }
+  const node = STORY_TREE[state.currentNode];
+  if (!node) {
+    root.innerHTML = `<p>❌ 节点不存在: ${state.currentNode}</p>`;
+    return;
+  }
+  root.innerHTML = nodeHTML(node);
+
+  // 绑定决策点击
+  document.querySelectorAll('.choice').forEach(el => {
+    el.addEventListener('click', () => {
+      const idx = parseInt(el.dataset.idx);
+      const opt = node.decision.options[idx];
+      state.choices.push({ node: state.currentNode, choice: idx });
+      // 应用 modify（如果写了）
+      if (node.modifies && node.modifies[idx]) {
+        modify(node.modifies[idx]);
+      }
+      // 跳转到下一个
+      const next = node.nexts ? node.nexts[idx] : node.next;
+      if (next) {
+        goTo(next);
+      } else {
+        showEnding();
+      }
+    });
+  });
+
+  // 没有决策 → 3 秒后自动下一个
+  if (!node.decision) {
+    setTimeout(() => {
+      const next = node.next;
+      if (next) goTo(next);
+      else showEnding();
+    }, 3000);
+  }
+}
+
+function goTo(nid) {
+  if (nid === '__ending__') { showEnding(); return; }
+  state.currentNode = nid;
+  render();
+}
+
+function showEnding() {
+  // 判定
+  const total = state.business + state.human + state.speech;
+  let ending;
+  if (total >= 140 && state.trust['王铁锤'] >= 15 && state.stress < 100) {
+    ending = { emoji: '🏆', title: '合伙人升职', subtitle: '6 个月的努力。\n无数次凌晨的会议。\n8 天改了 11 版。\n\n你升了。', color: '#FFD700' };
+  } else if (state.yibei >= 2 && state.trust['王铁锤'] >= 8 && state.stress < 120) {
+    ending = { emoji: '🎓', title: '乙学大师', subtitle: 'L' + state.yibei + ' 乙里乙气王者。\n\n王铁锤在年会说：\n"林舟是我们公司最懂客户的乙方大师。"\n\n这是另一种赢。', color: '#FFD700' };
+  } else if (state.business >= 60 && state.trust['张设计'] >= 12) {
+    ending = { emoji: '🚀', title: '创业线', subtitle: '你走了。\n带走了张设计。\n\n0 到 1。\n这一次你做自己的王。', color: '#34C759' };
+  } else if (state.business >= 60 && state.trust['刘老板'] >= 8) {
+    ending = { emoji: '💼', title: '带队跳槽', subtitle: '5 个亿。\n新开始。\n\n你走了。\n带走了张设计。', color: '#007AFF' };
+  } else if (state.stress >= 150) {
+    ending = { emoji: '💔', title: '撑不住', subtitle: '凌晨 4 点。\n妈妈的电话。\n你哭了出来。\n\n这不是结束。\n是你重新开始。', color: '#FF3B30' };
+  } else if (state.reputation < 25) {
+    ending = { emoji: '📦', title: '被优化', subtitle: 'N+1 赔偿金到账。\n朋友圈：重新出发。\n\n6 个月。\n但下次你不会再走同样的路。', color: '#8E8E93' };
+  } else {
+    ending = { emoji: '😐', title: '留任主管', subtitle: '你还在这家公司。\n但不是合伙人。\n\n老黄牛的春天。\n也许明年。', color: '#8E8E93' };
+  }
+  state.ending = ending;
+  state.currentNode = '__ending__';
+  render();
+}
+
+function restart() {
+  state = {
+    business: 30, human: 30, speech: 30, stress: 20, reputation: 50,
+    yibei: 0,
+    trust: { '王铁锤': 0, '张总': 0, '张设计': 0, '赵欣': 0, '刘老板': 0, '小张AE': 0 },
+    choices: [],
+    currentNode: '__intro__',
+    background: null
+  };
+  render();
+}
+
+// ============================================================
+// 完整对话树（精简版：保留所有关键节点 + 关键决策）
+// ============================================================
+const STORY_TREE = {
+  'intro': {
+    time: '8:57',
+    narrator: ['你站在写字楼大堂。33岁的林舟，前大厂P7，失业3个月，被塞进一家30人不到的小广告公司。\n\n工资降30%。但你告诉自己：这是最后一次机会。'],
+    decision: {
+      prompt: '手机震了——王铁锤的消息。\n\n你怎么回？',
+      options: [
+        '好的王总，明天见！🌹\n（乙里乙气 +1）',
+        '收到，我准备一下\n（业务 +2）',
+        '王总，到了给个具体位置？\n（话术 +2）'
+      ]
+    },
+    modifies: [
+      { yibei: 1 }, {}, { speech: 2 }
+    ],
+    nexts: ['act1_office', 'act1_office', 'act1_office']
+  },
+  'act1_office': {
+    time: '9:05',
+    narrator: ['第一天上班。你见到了 4 个关键人物：'],
+    messages: [
+      { type: 'them', author: '王铁锤', text: '今天给你介绍下团队。', time: '9:05' },
+      { type: 'them', author: '张设计', text: '欢迎舟哥。我是张设计，做了 5 年。公司叫张设计的 3 个都离职了，我是第 4 个。😅', time: '9:06' },
+      { type: 'them', author: '小张AE', text: '舟哥好！我是小张，客户经理～以后一起扛！', time: '9:07' },
+      { type: 'them', author: '赵欣', text: '我是赵欣，前公司那个，你还记得我吧。', time: '9:08' }
+    ],
+    next: 'act1_side_zhao'
+  },
+  'act1_side_zhao': {
+    time: '10:15',
+    narrator: ['茶水间里，副职老张试探你："小林啊，来多久了？业务熟了吧？"\n他在套你的话。'],
+    decision: {
+      prompt: '老张在套你的话。\n你怎么回？',
+      options: [
+        '实话实说：刚来 3 天，还在熟悉\n（人情 +3）',
+        '反向试探：张哥您看呢？\n（话术 +5）',
+        '模糊应付：还行还行，还在学习哈~🌹\n（乙里乙气 +2）'
+      ]
+    },
+    modifies: [{ human: 3 }, { speech: 5 }, { yibei: 2 }],
+    nexts: ['act1_choose_zhaoxin', 'act1_choose_zhaoxin', 'act1_choose_zhaoxin']
+  },
+  'act1_choose_zhaoxin': {
+    time: '11:00',
+    narrator: ['茶水间遇到赵欣。曾经的 P8 竞争对手。她端着咖啡看着你。'],
+    decision: {
+      prompt: '"前同事，最近怎样？"\n你们曾经竞争过 P8。',
+      options: [
+        '主动寒暄："还行，你也来了？"\n（人情 +3，赵欣+5）',
+        '点头微笑，假装没听见\n（业务 +2，赵欣-3）'
+      ]
+    },
+    modifies: [{ human: 3, 'trust.赵欣': 5 }, { business: 2, 'trust.赵欣': -3 }],
+    nexts: ['act2_morning', 'act2_morning']
+  },
+  'act2_morning': {
+    time: '10:30',
+    messages: [
+      { type: 'them', author: '王铁锤', text: '下午 2 点跟双鱼科技开会。你去讲。', time: '10:30' },
+      { type: 'them', author: '王铁锤', text: 'PPT 第 7 页是产品图，AE 那边还没补上。', time: '10:31' }
+    ],
+    narrator: ['你打开 PPT，第 7 页是 [产品图占位]。张总已经看过你发的版本，他不知道这一页是空的。'],
+    next: 'act2_ppt_decide'
+  },
+  'act2_ppt_decide': {
+    decision: {
+      prompt: 'PPT 第 7 页是空的。3 小时后提案。\n\n你怎么办？',
+      options: [
+        '联系张设计，让他 3 小时赶一张图\n（人情 +5）',
+        '改 PPT 结构，把这页删了重讲\n（话术 +8）',
+        "临场发挥：这页我们重点谈策略\n（话术 +10）"
+      ]
+    },
+    modifies: [{ human: 5, 'trust.张设计': 5 }, { speech: 8 }, { speech: 10, yibei: 1 }],
+    nexts: ['act2_meeting', 'act2_meeting', 'act2_meeting']
+  },
+  'act2_meeting': {
+    time: '14:00',
+    messages: [
+      { type: 'them', author: '张总', text: '我时间宝贵，15 分钟，开始吧。', time: '14:01' },
+      { type: 'them', author: '张总', text: '整体还行，但 logo 要五彩斑斓的黑，要能发光的。下周给我 3 版。可以吧？', time: '14:12' }
+    ],
+    narrator: ['【全场安静 3 秒】\n\n五彩斑斓的黑。量子力学级别。张总看着你，等你回话。'],
+    next: 'act2_color_decide'
+  },
+  'act2_color_decide': {
+    decision: {
+      prompt: '五彩斑斓的黑。\n\n你怎么回？',
+      options: [
+        '好的好的张总，3 版这就安排~🌹\n（业务 +1，乙里乙气 +1）',
+        '张总，黑配什么场景？能发个参考图吗？\n（话术 +8）'
+      ]
+    },
+    modifies: [{ business: 1, yibei: 1 }, { speech: 8 }],
+    nexts: ['act3_late_night', 'act3_late_night']
+  },
+  'act3_late_night': {
+    time: '1:23',
+    narrator: ['凌晨 1:23。8 天前你提的方案已经改了 11 版。\n张总发来："方案不错，但整体感觉不对。我们再聊聊？"\n\n你的手机还在亮。'],
+    messages: [
+      { type: 'them', author: '张设计', text: '舟哥，你看到张总发的了吗？', time: '1:25' },
+      { type: 'them', author: '张设计', text: '我把第 11 版的源文件打包了。你要是改不动，就用这个发他。', time: '1:26' },
+      { type: 'them', author: '张设计', text: '反正他最后也会用第一版。', time: '1:26' }
+    ],
+    next: 'act3_side_girlfriend'
+  },
+  'act3_side_girlfriend': {
+    time: '1:00',
+    narrator: ['凌晨 1 点你到家。她没睡。\n"你天天这么晚，是不是不爱我了？"\n\n你知道——你只是想把方案改完。但她知道的是——你已经 8 天没陪她吃饭了。'],
+    decision: {
+      prompt: '凌晨 1 点。她问是不是不爱她了。\n\n你怎么回？',
+      options: [
+        '我也想早回，这单子真走不开\n（抗压 +5）',
+        '你想多了，就是工作\n（抗压 +10，人情-5）',
+        '抱住她：对不起，等这阵子过了我补偿你\n（人情 +3，stress-3）'
+      ]
+    },
+    modifies: [{ stress: 5 }, { stress: 10, human: -5 }, { human: 3, stress: -3 }],
+    nexts: ['act3_choose', 'act3_choose', 'act3_choose']
+  },
+  'act3_choose': {
+    time: '1:30',
+    decision: {
+      prompt: '凌晨 1:23。8 天改了 11 版。现在还要"再聊聊"。\n\n你怎么回张设计？',
+      options: [
+        '已读不回。明天再说。\n（抗压 +10）',
+        '回他："明天 10 点我们对一下方向"\n（人情 +5）'
+      ]
+    },
+    modifies: [{ stress: 10, business: -5 }, { human: 5, 'trust.张设计': 8, stress: -5 }],
+    nexts: ['act4_meal', 'act4_meal']
+  },
+  'act4_meal': {
+    time: '19:00',
+    messages: [
+      { type: 'them', author: '刘老板', text: '对了小王，你们那个赵欣我听说过，能力不错，下周让她来跟我对接？', time: '19:30' }
+    ],
+    narrator: ['饭局上。王铁锤在旁边看着你。刘老板等着你的回答。这一句话能决定你半年。'],
+    next: 'act4_side_meal_buy'
+  },
+  'act4_side_meal_buy': {
+    time: '20:30',
+    narrator: ['饭局尾声。王铁锤使了个眼色——他要去创造和刘老板单独聊的空间。\n\n"眼色"是什么？'],
+    decision: {
+      prompt: '王铁锤使了个眼色。\n你去——',
+      options: [
+        '立刻去前台买单\n（话术+2，王铁锤-2）',
+        '假装去洗手间，等 5 分钟回来\n（抗压+5，王铁锤+3）',
+        '主动说：老板我去买包烟\n（人情+8，王铁锤+5）'
+      ]
+    },
+    modifies: [{ speech: 2, 'trust.王铁锤': -2 }, { stress: 5, 'trust.王铁锤': 3 }, { human: 8, 'trust.王铁锤': 5 }],
+    nexts: ['act4_meal_decide', 'act4_meal_decide', 'act4_meal_decide']
+  },
+  'act4_meal_decide': {
+    time: '19:31',
+    decision: {
+      prompt: '刘老板当面点赵欣。你怎么接？',
+      options: [
+        '没问题刘老板，我回去跟王总说一声\n（抗压 +5）',
+        '刘老板，今天是我主导这个局。先让我这边把项目聊完。\n（话术 +12）',
+        '刘老板，合适最重要。让我先介绍下赵欣。\n（话术 +8）'
+      ]
+    },
+    modifies: [
+      { stress: 5, speech: -3, yibei: 2, 'trust.王铁锤': 3 },
+      { speech: 12, human: -3, reputation: -3 },
+      { speech: 8, human: 5, reputation: 5, 'trust.王铁锤': 5, 'trust.刘老板': 3 }
+    ],
+    nexts: ['act4_side_zhan', 'act4_side_zhan', 'act4_side_zhan']
+  },
+  'act4_side_zhan': {
+    time: '11:00',
+    messages: [
+      { type: 'them', author: '张总', text: '下周五我们周年庆，你能来吗？', time: '11:00' }
+    ],
+    narrator: ['张总让你去。但王铁锤昨天跟你说"重点抓刘老板"。两边都得罪不起。'],
+    decision: {
+      prompt: '张总让你下周去周年庆。但王铁锤让你抓刘老板。\n\n你怎么回？',
+      options: [
+        '答应张总，去\n（张总+5，王铁锤-3）',
+        '拒绝张总，专注刘老板\n（张总-5，王铁锤+3）',
+        '跟王铁锤汇报，问他意见\n（人情+5）'
+      ]
+    },
+    modifies: [
+      { 'trust.张总': 5, 'trust.王铁锤': -3, 'trust.刘老板': -3 },
+      { 'trust.张总': -5, 'trust.王铁锤': 3, 'trust.刘老板': 3 },
+      { human: 5, 'trust.王铁锤': 5 }
+    ],
+    nexts: ['act5_crisis', 'act5_crisis', 'act5_crisis']
+  },
+  'act5_crisis': {
+    time: '14:00',
+    messages: [
+      { type: 'them', author: '张总', text: '林舟，下个季度续约，我考虑考虑。', time: '14:01' }
+    ],
+    narrator: ['电话挂了。\n这个客户占公司营收的 30%。\n王铁锤还不知道。'],
+    next: 'act5_report_decide'
+  },
+  'act5_report_decide': {
+    time: '14:05',
+    decision: {
+      prompt: '张总威胁不续约。30% 营收。王铁锤还不知道。\n\n你怎么告诉他？',
+      options: [
+        '立刻当面汇报 + 3 套方案\n（业务+3，人情+8，王铁锤+10）',
+        '等 3 天，自己先想办法\n（抗压 +20）',
+        '找张设计问问情况\n（人情+5）'
+      ]
+    },
+    modifies: [
+      { business: 3, human: 8, 'trust.王铁锤': 10, stress: -5 },
+      { stress: 20 },
+      { human: 5, 'trust.张设计': 5 }
+    ],
+    nexts: ['act5_side_sidejob', '__ending__', 'act5_side_sidejob']
+  },
+  'act5_side_sidejob': {
+    time: '15:30',
+    messages: [
+      { type: 'them', author: '小张AE', text: '舟哥，我最近开了个副业，小红书，一个月能赚 5000。', time: '15:30' }
+    ],
+    narrator: ['你看着小张 AE。他比你小 3 岁，他比你敢。\n你的工资可能被他 AI 替代。但你敢开始吗？'],
+    decision: {
+      prompt: '小张 AE 副业月入 5000。\n\n你想开始吗？',
+      options: [
+        '不搞副业，all in 工作\n（业务+3，stress+5）',
+        '跟小张 AE 学，开始\n（抗压-10）',
+        '让他带你 30 天试试\n（话术+3）'
+      ]
+    },
+    modifies: [
+      { business: 3, stress: 5 },
+      { stress: -10, 'trust.小张AE': 5 },
+      { speech: 3 }
+    ],
+    nexts: ['act5_side_breakdown', 'act5_side_breakdown', 'act5_side_breakdown']
+  },
+  'act5_side_breakdown': {
+    time: '4:00',
+    narrator: ['连续 3 周凌晨 3 点后入睡。\n你手抖得握不住咖啡杯。\n突然手机响了——是妈妈。\n"儿子，这么晚还在加班？"\n\n你快撑不住了。'],
+    decision: {
+      prompt: '凌晨 4 点。连续 3 周凌晨 3 点后入睡。\n\n你——',
+      options: [
+        '明天请假，去看心理医生\n（抗压-30，业务-5）',
+        '硬撑，吃"红枣仁粉"\n（抗压-15）',
+        '在朋友圈发"再不熬夜"\n（抗压-5）'
+      ]
+    },
+    modifies: [
+      { stress: -30, business: -5 },
+      { stress: -15 },
+      { stress: -5 }
+    ],
+    nexts: ['act6_side_wrong', 'act6_side_wrong', 'act6_side_wrong']
+  },
+  'act6_side_wrong': {
+    time: '10:00',
+    messages: [
+      { type: 'them', author: '王铁锤', text: '今天下午张总来，方案用 A 版。', time: '10:00' },
+      { type: 'them', author: '张总', text: '今天下午我来看，方案用 B 版。', time: '10:05' }
+    ],
+    narrator: ['王铁锤说 A 版。张总说 B 版。两边都是爷。你夹在中间。'],
+    decision: {
+      prompt: '王铁锤说 A 版，张总说 B 版。\n你夹在中间。\n\n怎么回？',
+      options: [
+        '听老板的，用 A 版\n（王铁锤+3，张总-8）',
+        '听客户的，用 B 版\n（王铁锤-5，张总+5）',
+        '两边都说"我准备两版您选"\n（话术+8）'
+      ]
+    },
+    modifies: [
+      { 'trust.王铁锤': 3, 'trust.张总': -8 },
+      { 'trust.王铁锤': -5, 'trust.张总': 5 },
+      { speech: 8, stress: 5 }
+    ],
+    nexts: ['act6_meeting', 'act6_meeting', 'act6_meeting']
+  },
+  'act6_meeting': {
+    time: '14:00',
+    messages: [
+      { type: 'them', author: '刘老板', text: '小林啊，你这个人有点意思。哪天来我办公室坐坐？', time: '14:05' }
+    ],
+    narrator: ['行业大会上。刘老板端着威士忌，跟你聊了 15 分钟。\n\n你知道——刘老板手里有 5 个亿的市场预算。'],
+    next: 'act6_liu_decide'
+  },
+  'act6_liu_decide': {
+    decision: {
+      prompt: '刘老板约你单独聊。5 个亿的市场预算在他手里。\n\n你怎么接？',
+      options: [
+        '保持距离——刘总过奖了\n（业务+2）',
+        '当场加微信 + 团队案例\n（话术+15）',
+        '明天带最新方案去拜访\n（话术+10）'
+      ]
+    },
+    modifies: [
+      { business: 2, 'trust.刘老板': 1 },
+      { speech: 15, 'trust.王铁锤': -3, 'trust.刘老板': 5, 'trust.小张AE': -5, reputation: -3 },
+      { speech: 10, business: 5, 'trust.王铁锤': 3, 'trust.刘老板': 3 }
+    ],
+    nexts: ['act7_final', 'act7_final', 'act7_final']
+  },
+  'act7_final': {
+    time: '14:00',
+    messages: [
+      { type: 'them', author: '王铁锤', text: '今天的合伙人预备人选，就你们两个。', time: '14:00' }
+    ],
+    narrator: ['王铁锤召开合伙人会议。赵欣对你微笑。\n\n你知道她这 6 个月做了什么。\n\n答辩开始。'],
+    next: '__ending__'
+  }
+};
+
+render();
+</script>
+</body>
+</html>
