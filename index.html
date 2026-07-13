@@ -1746,6 +1746,7 @@ const app = createApp({
     let swipeStartX = 0, swipeActive = false, swipeOffsetX = 0;
     let currentResolve = null;
     let currentNode = 'intro';
+    let lastDecisionValue = null;
     let running = false;
 
     // === 工具函数 ===
@@ -1815,6 +1816,7 @@ const app = createApp({
 
     function showDecision(prompt, left, right) {
       return new Promise(resolve => {
+        lastDecisionValue = { prompt, left, right };
         decision.value = { prompt, left, right };
         decisionActive.value = true;
         currentResolve = (choice) => {
@@ -1895,16 +1897,14 @@ const app = createApp({
       try {
         const ctx = {
           state, sendFrom, addInfo, addNarrator, showNotif, showToast,
-          wait, setTime, switchNpc, addMoment, modify, decision, goto,
+          wait, setTime, switchNpc, addMoment, modify, showDecision, goto,
           setStress: (v) => { state.stress = Math.max(0, Math.min(200, v)); }
         };
         // 标记选择
-        if (currentNode === 'act2_ppt_decide') {
-          if (decision.value) {
-            if (decision.value.left && decision.value.left.includes('联系张设计')) state.flags.chose_ask = true;
-            if (decision.value.right && decision.value.right.includes('改 PPT 结构')) state.flags.chose_revise = true;
-            if (decision.value.right && decision.value.right.includes('临场发挥')) state.flags.chose_strategy = true;
-          }
+        if (currentNode === 'act2_ppt_decide' && lastDecisionValue) {
+          if (lastDecisionValue.left && lastDecisionValue.left.includes('联系张设计')) state.flags.chose_ask = true;
+          if (lastDecisionValue.right && lastDecisionValue.right.includes('改 PPT 结构')) state.flags.chose_revise = true;
+          if (lastDecisionValue.right && lastDecisionValue.right.includes('临场发挥')) state.flags.chose_strategy = true;
         }
         await node.run(ctx);
       } catch (e) {
